@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Collaboration Hub</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        h1 { color: #2c3e50; }
+        section { margin-bottom: 2em; }
+        input, textarea, button { margin: 0.2em; }
+        .list { margin-top: 1em; }
+        .item { border-bottom: 1px solid #eee; padding: 0.5em 0; }
+        #hub { display: none; }
+        .project-members, .project-comments { font-size: 0.95em; color: #555; }
+        .comment { margin-left: 1em; border-left: 2px solid #eee; padding-left: 0.5em; }
+    </style>
+</head>
+<body>
+    <h1>Student Collaboration Hub</h1>
+    <div id="loginBox">
+        <h2>Login</h2>
+        <input type="text" id="loginUser" placeholder="Enter your name">
+        <button onclick="login()">Login</button>
+        <div id="loginError" style="color:red;"></div>
+    </div>
+    <div id="hub">
+        <section>
+            <h2>Profile</h2>
+            <div id="profileBox"></div>
+        </section>
+        <section>
+            <h2>My Projects</h2>
+            <div class="list" id="myProjects"></div>
+        </section>
+        <section>
+            <h2>Add Student</h2>
+            <input type="text" id="studentName" placeholder="Student Name">
+            <button onclick="addStudent()">Add</button>
+            <div class="list" id="studentsList"></div>
+        </section>
+        <section>
+            <h2>Create Project</h2>
+            <input type="text" id="projectTitle" placeholder="Project Title">
+            <textarea id="projectDesc" placeholder="Project Description"></textarea>
+            <select id="projectStatus">
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+            </select>
+            <button onclick="addProject()">Create</button>
+            <div class="list" id="projectsList"></div>
+        </section>
+        <section>
+            <h2>Projects</h2>
+            <div class="list" id="allProjects"></div>
+        </section>
+        <section>
+            <h2>Direct Message</h2>
+            <select id="dmRecipient"></select>
+            <input type="text" id="dmContent" placeholder="Message">
+            <button onclick="sendDM()">Send</button>
+            <div class="list" id="dmList"></div>
+        </section>
+        <section>
+            <h2>Post Message</h2>
+            <input type="text" id="msgSender" placeholder="Your Name">
+            <input type="text" id="msgContent" placeholder="Message">
+            <button onclick="postMessage()">Send</button>
+            <div class="list" id="messagesList"></div>
+        </section>
+        <section>
+            <h2>Project Filter</h2>
+            <select id="projectFilter" onchange="showAllProjects()">
+                <option value="">All</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+            </select>
+        </section>
+        <button onclick="logout()">Logout</button>
+    </div>
+    <script>
+        const api = 'http://127.0.0.1:8000';
+        let currentUser = '';
+        let allStudents = [];
+        let allProjects = [];
+        let directMessages = [];
+        function showHub() {
+            document.getElementById('loginBox').style.display = 'none';
+            document.getElementById('hub').style.display = 'block';
+            document.getElementById('msgSender').value = currentUser;
+            listStudents();
+            listProjects();
+            listMessages();
+            showAllProjects();
+            showProfile();
+            showMyProjects();
+            updateDMRecipient();
+            showDMs();
+        }
+        function logout() {
+            currentUser = '';
+            document.getElementById('loginBox').style.display = 'block';
+            document.getElementById('hub').style.display = 'none';
+        }
+        async function login() {
+            const username = document.getElementById('loginUser').value;
+            if (!username) return;
+            const res = await fetch(`${api}/login?username=${encodeURIComponent(username)}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = username;
+                showHub();
+            } else {
+                document.getElementById('loginError').innerText = 'Login failed.';
+            }
+        }
+        async function addStudent() {
+            const name = document.getElementById('studentName').value;
+            if (!name) return;
+            await fetch(`${api}/students`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            document.getElementById('studentName').value = '';
+            listStudents();
+        }
+        async function listStudents() {
+            const res = await fetch(`${api}/students`);
+            allStudents = await res.json();
+            document.getElementById('studentsList').innerHTML = allStudents.map(s => `<div class='item'><span style='background:#eee;border-radius:50%;padding:0.3em 0.6em;margin-right:0.5em;'>${s.avatar||s.name[0]}</span>${s.id}: ${s.name}</div>`).join('');
+            updateDMRecipient();
+        }
+        async function addProject() {
+            const title = document.getElementById('projectTitle').value;
+            const desc = document.getElementById('projectDesc').value;
+            const status = document.getElementById('projectStatus').value;
+            if (!title || !desc) return;
+            await fetch(`${api}/projects`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, description: desc, status })
+            });
+            document.getElementById('projectTitle').value = '';
+            document.getElementById('projectDesc').value = '';
+            listProjects();
+            showAllProjects();
+        }
+        async function listProjects() {
+            const res = await fetch(`${api}/projects`);
+            allProjects = await res.json();
+            document.getElementById('projectsList').innerHTML = allProjects.map(p => `<div class='item'>${p.id}: <b>${p.title}</b> - ${p.description} [${p.status||'In Progress'}]</div>`).join('');
+            showMyProjects();
+        }
+        async function showAllProjects() {
+            const filter = document.getElementById('projectFilter').value;
+            let url = `${api}/projects`;
+            if (filter) url += `?status=${encodeURIComponent(filter)}`;
+            const res = await fetch(url);
+            allProjects = await res.json();
+            let html = '';
+            for (const p of allProjects) {
+                html += `<div class='item'><b>${p.title}</b> (ID: ${p.id})<br>${p.description} <span style='color:green;'>[${p.status||'In Progress'}]</span>`;
+                html += `<div class='project-members'>Members: ${(p.members && p.members.length) ? p.members.join(', ') : 'None'}<br>`;
+                html += `<button onclick="joinProject(${p.id})">Join Project</button></div>`;
+                html += `<button onclick='toggleComments(${p.id})' id='toggle-btn-${p.id}'>Show Comments</button>`;
+                html += `<div class='project-comments' id='comments-${p.id}' style='display:none;'></div>`;
+                html += `<input type='text' id='comment-author-${p.id}' placeholder='Your Name' value='${currentUser}' style='display:none;'>`;
+                html += `<input type='text' id='comment-content-${p.id}' placeholder='Add a comment...'>`;
+                html += `<button onclick='addComment(${p.id})'>Comment</button>`;
+                html += `</div>`;
+            }
+            document.getElementById('allProjects').innerHTML = html;
+        }
+        function toggleComments(projectId) {
+            const el = document.getElementById(`comments-${projectId}`);
+            const btn = document.getElementById(`toggle-btn-${projectId}`);
+            if (el.style.display === 'none') {
+                el.style.display = 'block';
+                btn.innerText = 'Hide Comments';
+                loadComments(projectId);
+            } else {
+                el.style.display = 'none';
+                btn.innerText = 'Show Comments';
+            }
+        }
+        async function joinProject(projectId) {
+            if (!currentUser) return alert('Login required');
+            await fetch(`${api}/projects/${projectId}/join?student_name=${encodeURIComponent(currentUser)}`, { method: 'POST' });
+            showAllProjects();
+            showMyProjects();
+        }
+        async function addComment(projectId) {
+            const author = currentUser;
+            const content = document.getElementById(`comment-content-${projectId}`).value;
+            if (!author || !content) return;
+            await fetch(`${api}/projects/${projectId}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ author, content })
+            });
+            document.getElementById(`comment-content-${projectId}`).value = '';
+            loadComments(projectId);
+        }
+        async function loadComments(projectId) {
+            const res = await fetch(`${api}/projects/${projectId}/comments`);
+            const comments = await res.json();
+            document.getElementById(`comments-${projectId}`).innerHTML = comments.map(c => `<div class='comment'><b>${c.author}:</b> ${c.content}</div>`).join('');
+        }
+        async function postMessage() {
+            const sender = document.getElementById('msgSender').value;
+            const content = document.getElementById('msgContent').value;
+            if (!sender || !content) return;
+            await fetch(`${api}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender, content })
+            });
+            document.getElementById('msgContent').value = '';
+            listMessages();
+        }
+        async function listMessages() {
+            const res = await fetch(`${api}/messages`);
+            const messages = await res.json();
+            document.getElementById('messagesList').innerHTML = messages.map(m => `<div class='item'><b>${m.sender}:</b> ${m.content}</div>`).join('');
+        }
+        function showProfile() {
+            const student = allStudents.find(s => s.name === currentUser);
+            if (!student) {
+                document.getElementById('profileBox').innerHTML = 'Not found.';
+                return;
+            }
+            let html = `<b>Name:</b> ${student.name}<br><b>Projects:</b> ${student.projects && student.projects.length ? student.projects.join(', ') : 'None'}`;
+            document.getElementById('profileBox').innerHTML = html;
+        }
+        function showMyProjects() {
+            const student = allStudents.find(s => s.name === currentUser);
+            if (!student) {
+                document.getElementById('myProjects').innerHTML = 'None';
+                return;
+            }
+            const myProjects = allProjects.filter(p => p.members && p.members.includes(currentUser));
+            document.getElementById('myProjects').innerHTML = myProjects.length ? myProjects.map(p => `<div class='item'><b>${p.title}</b> - ${p.description} [${p.status||'In Progress'}]</div>`).join('') : 'None';
+        }
+        function updateDMRecipient() {
+            const select = document.getElementById('dmRecipient');
+            if (!select) return;
+            select.innerHTML = allStudents.filter(s => s.name !== currentUser).map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+        }
+        async function sendDM() {
+            const recipient = document.getElementById('dmRecipient').value;
+            const content = document.getElementById('dmContent').value;
+            if (!recipient || !content) return;
+            await fetch(`${api}/direct-messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender: currentUser, recipient, content })
+            });
+            showDMs();
+            document.getElementById('dmContent').value = '';
+        }
+        async function showDMs() {
+            const res = await fetch(`${api}/direct-messages/${currentUser}`);
+            const myDMs = await res.json();
+            document.getElementById('dmList').innerHTML = myDMs.length ? myDMs.map(dm => `<div class='item'><b>${dm.from} → ${dm.to}:</b> ${dm.content}</div>`).join('') : 'No messages.';
+        }
+    </script>
+</body>
+</html>
